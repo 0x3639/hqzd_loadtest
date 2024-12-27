@@ -11,7 +11,7 @@ import logging
 # Load environment variables from .env
 load_dotenv()
 
-def worker_thread(thread_id, interval, nomctl_path, url, password, addresses, address_locks, wallet_lock):
+def worker_thread(thread_id, interval, nomctl_path, url, password, addresses, address_locks, wallet_lock, amount):
     """
     Each worker:
       - Loops forever
@@ -34,7 +34,7 @@ def worker_thread(thread_id, interval, nomctl_path, url, password, addresses, ad
         for address in addresses:
             with wallet_lock:  # <--- Prevent nomctl concurrency
                 with address_locks[address]:
-                    cmd = send_command_base + [address, "1", "zts1utylzxxxxxxxxxxx6agxt0"]
+                    cmd = send_command_base + [address, str(amount), "zts1utylzxxxxxxxxxxx6agxt0"]
 
                     safe_cmd_str = ' '.join("****" if arg == password else arg for arg in cmd)
                     logging.info(f"[Thread {thread_id}] Executing: {safe_cmd_str}")
@@ -70,8 +70,21 @@ def main():
         print("[send_spam.py] No addresses found in .env. Exiting.")
         return
     
-    addresses = json.loads(os.getenv("ADDRESSES"))
+    addresses = json.loads(os.getenv("ADDRESSES", "[]"))
     
+    # Read integer-based SEND_AMOUNT from .env; default to 1 if invalid or below 1
+    amount_str = os.getenv("SEND_AMOUNT", "1")
+    try:
+        amount = int(amount_str)
+        if amount < 1:
+            raise ValueError("Minimum amount is 1")
+    except ValueError:
+        logging.warning(f"[send_spam.py] Invalid or below-minimum SEND_AMOUNT '{amount_str}', defaulting to 1")
+        amount = 1
+
+    # Read TOKEN_STANDARD from .env
+    token_standard = os.getenv("TOKEN_STANDARD", "zts1utylzxxxxxxxxxxx6agxt0")
+
     # Path to nomctl
     nomctl_path = "../nomctl/build/nomctl"
 
@@ -84,7 +97,7 @@ def main():
     for i in range(args.workers):
         t = threading.Thread(
             target=worker_thread,
-            args=(i, args.interval, nomctl_path, url, password, addresses, address_locks, wallet_lock),
+            args=(i, args.interval, nomctl_path, url, password, addresses, address_locks, wallet_lock, amount),
             daemon=True
         )
         t.start()
